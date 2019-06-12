@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 
 	"golang.org/x/oauth2"
@@ -45,6 +43,36 @@ func (k *keys) getB64BearerToken() string {
 	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", k.Key, k.Secret)))
 }
 
+func retweeters(client *http.Client, tweetID string) ([]string, error) {
+	type user struct {
+		ScreenName string `json:"screen_name"`
+	}
+	// retweet contains a slice of retweets for a given tweet ID.
+	type retweet struct {
+		User user `json:"user"`
+	}
+
+	url := fmt.Sprintf("https://api.twitter.com/1.1/statuses/retweets/%s.json", tweetID)
+	res, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("(retweeters) get \"%s\" failed: %v", url, err)
+	}
+
+	var retweets []retweet
+	dec := json.NewDecoder(res.Body)
+	if err := dec.Decode(&retweets); err != nil {
+		return nil, fmt.Errorf("(retweeters) decode JSON failed: %v", err)
+	}
+
+	// This creates the slice and allocate the memory in one go. It is
+	// faster than growing the slice.
+	usernames := make([]string, 0, len(retweets))
+	for _, u := range retweets {
+		usernames = append(usernames, u.User.ScreenName)
+	}
+	return usernames, nil
+}
+
 func main() {
 	flag.Parse()
 	ctx := context.Background()
@@ -77,10 +105,10 @@ func main() {
 
 	var conf oauth2.Config
 	twClient := conf.Client(ctx, &token)
-	res, err = twClient.Get("https://api.twitter.com/1.1/statuses/retweets/1007246074317365248.json")
+	usernames, err := retweeters(twClient, "1007246074317365248")
 	if err != nil {
-		log.Fatalf("Request failed: %v", err)
+		log.Fatalf("Could not get retweets: %v", err)
 	}
-	io.Copy(os.Stdout, res.Body)
+	fmt.Println(usernames)
 
 }
